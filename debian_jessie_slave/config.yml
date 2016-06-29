@@ -1,5 +1,5 @@
 ---
-- name: "Configuring a  Standard Plusnet Jenkins slave server after initial package install with root"
+- name: "Configuring a Jenkins debian slave server after initial package install with root"
   hosts: "{{ hosts }}"
   remote_user: "{{ user }}" # Should be jenkins
 
@@ -27,8 +27,6 @@
      java_folder: "/usr/lib/jvm/"
      java_alias: "default-java"
      java_archive: "{{ download_folder }}/{{ java_name }}.tar.gz"
-     codebase_modules: "/local/codebase2005/modules"
-     git_repo: "git.internal.plus.net"
 
 
   tasks:
@@ -61,44 +59,6 @@
               - add_gradle_properties
               - jenkins_user
 
- #######################################################################################################################
- # GIT REPO TASKS
- #
- #
- #######################################################################################################################
-      - name: install_git_repos
-        when: add_profiles|success
-        git:
-            repo="{{ git_repo }}:/git/plusnet/{{ item }}.git"
-            dest="{{ jenkins_slave_home }}/{{ item }}"
-            force=yes
-            accept_hostkey=yes
-        with_items:
-              - "GitFlow"
-              - "emt"
-              - "GitView"
-              - "composer-maven-plugin"
-              - "PlusnetCodingStandards"
-        register: install_git_repos
-        tags:
-               - install_git_repos
-               - repo_setup
-
-      - name: install_more_git_repos
-        when: install_git_repos|success
-        git:
-              repo="{{ git_repo }}:/git/plusnet/{{ item }}.git"
-              dest="{{ git_repos_home }}/{{ item }}"
-              force=yes
-              accept_hostkey=yes
-        with_items:
-              - "cluster_map"
-              - "git_tools"
-              - "LegacyCodebase"
-        register: install_more_git_repos
-        tags:
-              - install_more_git_repos
-              - repo_setup
 
 ########################################################################################################################
 # COMPOSER SETUP
@@ -165,24 +125,3 @@
         tags:
               - symlink_phpdoc
               - phptool_setup
-
-########################################################################################################################
-# CODEBASE SETUP
-# setup symlinks and directory structure
-#
-########################################################################################################################
-
-      - name: copy_codebasetool
-        copy: "src=config/codebasetool.sh dest=/tmp/codebasetool.sh owner=jenkins group=workplacesystem mode=0755"
-        register: copy_codebasetool
-        tags:
-               - copy_codebasetool
-               - codebase_setup
-
-      - name: run_codebasetool
-        when: copy_codebasetool|success
-        shell: "bash /tmp/codebasetool.sh -i >> /tmp/codebastool.log"
-        register: run_codebasetool
-        tags:
-               - run_codebasetool
-               - codebase_setup
