@@ -32,7 +32,6 @@
      java_alias: "default-java"
      java_archive: "{{ download_folder }}/{{ java_name }}.tar.gz"
      java7_archive: "{{ download_folder }}/{{java7_name }}.tar.gz"
-     codebase_sites: "/local/codebase2005/sites"
      phpcb_install_path: "/usr/bin/phpcb"
      phpcb_install_dir: "/usr/bin/phpcb/phpcb-1.1.1.phar"
      phpcb_url: "https://github.com/mayflower/PHP_CodeBrowser/releases/download/1.1.1/phpcb-1.1.1.phar"
@@ -126,7 +125,6 @@
        with_items:
             - "{{ java_folder }}/{{ java_name }}"
             - "{{ composer_folder }}"
-            - "{{ codebase_modules }}"
             - "{{ maven_install_dir }}"
             - "{{ php_log_dir }}"
        register: create_system_folders
