@@ -1,0 +1,79 @@
+---
+- name: "Configuring a Jenkins master server after initial Jenkins install"
+  hosts: "{{ hosts }}"
+  remote_user: "{{ user }}" # Should be jenkins
+
+  ######################################################################################################################
+  # USAGE:
+  #       ansible-playbook config.yml --extra-vars "hosts=<HOSTNAME> user=<USER>
+  # RUN SPECIFC TASK(S):
+  #       ansible-playbook config.yml --tags=<SPECIFC TAGS FOR TASKS> --extra-vars "hosts=<HOSTNAME> user=<USER>
+  # RUN ALL EXCEPT SPECIFIC TASK(S):
+  #       ansible-playbook setup.yml --skip-tags=<SPECIFC_TAGS_TO_SKIP> --extra-vars "hosts=<HOSTNAME> user=<USER>
+  #
+  # NB: Any variable (vars) below can be overridden on the command line as an extra-vars argument
+  ######################################################################################################################
+
+  vars:
+     jenkins_server_home: "/var/lib/jenkins"
+     plugins_zip: "jenkins_1509_plugins.tar.gz"
+     plugins_609_zip: "plugins.tar.gz"
+     jenkins_plugins_home: "{{ jenkins_server_home }}/plugins"
+     jenkins_job_config: "jenkins_job_config.tar"
+     nodes_config: "nodes_config.tar"
+
+  tasks:
+
+
+########################################################################################################################
+# JENKINS SYSTEM CONFIG
+#
+#
+########################################################################################################################
+    - name: install_plugins
+      unarchive:          
+                  src="config/{{ plugins_zip }}"
+                  dest="{{ jenkins_plugins_home }}"
+                  copy=yes
+      register: install_plugins
+      tags:
+            - install_plugins
+            - jenkins_server_config
+
+    - name: install_config_xml
+      copy: "src=config/config.xml dest={{jenkins_server_home}}/config.xml owner=jenkins group=workplacesystem mode=0644"
+      register: install_config_xml
+      tags:
+            - install_config_xml
+            - jenkins_server_config
+
+    - name: install_jenkins_jobs
+      when: install_config_xml|success
+      unarchive:
+                  src="config/{{ jenkins_job_config }}"
+                  dest="{{ jenkins_server_home }}"
+                  copy=yes
+      register: install_jenkins_jobs
+      tags:
+             - install_jenkins_jobs
+             - jenkins_server_config
+
+    - name: install_nodes_config
+      when: install_config_xml|success
+      unarchive:
+                   src="config/{{ nodes_config }}"
+                   dest="{{ jenkins_server_home }}"
+                   copy=yes
+      register: install_nodes_config
+      tags:
+              - install_nodes_config
+              - jenkins_server_config
+
+    - name: install_credentials
+      when: install_config_xml|success
+      copy: "src=config/credentials.xml dest={{ jenkins_server_home }}/credentials.xml owner=jenkins group=workplacesysten mode=0644"
+      register: install_credentials
+      tags:
+              - install_credentials
+              - jenkins_server_config
+

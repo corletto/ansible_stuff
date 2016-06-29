@@ -1,0 +1,188 @@
+---
+- name: "Configuring a  Standard Plusnet Jenkins slave server after initial package install with root"
+  hosts: "{{ hosts }}"
+  remote_user: "{{ user }}" # Should be jenkins
+
+  ######################################################################################################################
+  # USAGE:
+  #       ansible-playbook config.yml --extra-vars "hosts=<HOSTNAME> user=<USER>
+  # RUN SPECIFC TASK(S):
+  #       ansible-playbook config.yml --tags=<SPECIFC TAGS FOR TASKS> --extra-vars "hosts=<HOSTNAME> user=<USER>
+  # RUN ALL EXCEPT SPECIFIC TASK(S):
+  #       ansible-playbook setup.yml --skip-tags=<SPECIFC_TAGS_TO_SKIP> --extra-vars "hosts=<HOSTNAME> user=<USER>
+  #
+  # NB: Any variable (vars) below can be overridden on the command line as an extra-vars argument
+  ######################################################################################################################
+
+  vars:
+     download_folder: "/usr/local"
+     composer_folder: "/local/apps/shared/composer"
+     jenkins_composer_folder: "/usr/local/bin"
+     jenkins_composer_home: "{{ jenkins_slave_home }}/.composer"
+     jenkins_slave_home: "/home/jenkins"
+     git_repos_home: "{{ jenkins_slave_home }}/git"
+     maven_version: "apache-maven-3.0.5"
+     maven_install_dir: "/usr/local/apache-maven"
+     java_name: "jdk1.6.0_45"
+     java_folder: "/usr/lib/jvm/"
+     java_alias: "default-java"
+     java_archive: "{{ download_folder }}/{{ java_name }}.tar.gz"
+     codebase_modules: "/local/codebase2005/modules"
+     git_repo: "git.internal.plus.net"
+
+
+  tasks:
+  ######################################################################################################################
+  # USER CONFIG TASKS
+  #
+  #
+  ######################################################################################################################
+      - name: add_profiles
+        copy: "src=config/{{ item }} dest={{ jenkins_slave_home }}/{{ item }} owner=jenkins group=workplacesystem mode=0644"
+        with_items:
+              - ".bashrc"
+              - ".bash_profile"
+        register: add_profiles
+        tags:
+              - add_profiles
+              - jenkins_user
+
+      - name: copy_maven_config
+        copy: "src=config/settings.xml dest={{jenkins_slave_home}}/.m2/settings.xml owner=jenkins group=workplacesystem mode=0644"
+        register: copy_maven_config
+        tags:
+              - add_settings_xml
+              - jenkins_user
+
+      - name: add_gradle_properties
+        copy: "src=config/gradle.properties dest={{ jenkins_slave_home }} owner=jenkins group=workplacesystem mode=0644"
+        register: add_gradle_properties
+        tags:
+              - add_gradle_properties
+              - jenkins_user
+
+ #######################################################################################################################
+ # GIT REPO TASKS
+ #
+ #
+ #######################################################################################################################
+      - name: install_git_repos
+        when: add_profiles|success
+        git:
+            repo="{{ git_repo }}:/git/plusnet/{{ item }}.git"
+            dest="{{ jenkins_slave_home }}/{{ item }}"
+            force=yes
+            accept_hostkey=yes
+        with_items:
+              - "GitFlow"
+              - "emt"
+              - "GitView"
+              - "composer-maven-plugin"
+              - "PlusnetCodingStandards"
+        register: install_git_repos
+        tags:
+               - install_git_repos
+               - repo_setup
+
+      - name: install_more_git_repos
+        when: install_git_repos|success
+        git:
+              repo="{{ git_repo }}:/git/plusnet/{{ item }}.git"
+              dest="{{ git_repos_home }}/{{ item }}"
+              force=yes
+              accept_hostkey=yes
+        with_items:
+              - "cluster_map"
+              - "git_tools"
+              - "LegacyCodebase"
+        register: install_more_git_repos
+        tags:
+              - install_more_git_repos
+              - repo_setup
+
+########################################################################################################################
+# COMPOSER SETUP
+#
+#
+########################################################################################################################
+      - name: install_system_composer
+        shell: "curl -sS https://getcomposer.org/installer | php -- --install-dir={{ jenkins_composer_home }} --filename=composer.phar"
+        args:
+               creates: "{{ jenkins_composer_home }}/composer.phar"
+        register: install_system_composer
+        tags:
+               - install_system_composer
+               - composer_setup
+               - jenkins_user
+
+      - name: add_composer_json
+        copy: "src=config/composer.json dest={{ jenkins_composer_home }} owner=jenkins group=workplacesystem mode=0644"
+        register: add_composer_json
+        tags:
+              - add_composer_json
+              - composer_setup
+              - jenkins_user
+
+      - name: composer_install
+        when: add_composer_json|success
+        command: "{{ jenkins_composer_home }}/composer.phar install chdir={{ jenkins_composer_home }}"
+        register: composer_install
+        tags:
+              - composer_install
+              - composer_setup
+              - jenkins_user
+
+
+      - name: symlink_phptools
+        when: composer_install|success
+        remote_user: root
+        file:
+              state=link
+              src="{{ jenkins_composer_home }}/vendor/bin/{{ item }}"
+              dest="/usr/bin/{{ item }}"
+        with_items:
+             - "phpunit"
+             - "dbunit"
+             - "phpcpd"
+             - "phpdcd"
+             - "phploc"
+             - "phpmd"
+             - "phpcs"
+             - "pdepend"
+        register: symlink_phptools
+        tags:
+             - symlink_phptools
+             - phptool_setup
+
+      - name: symlink_phpdoc
+        when: symlink_phptools|success
+        remote_user: root
+        file:
+              state=link
+              src="{{ jenkins_composer_home }}/vendor/bin/phpdoc.php"
+              dest="/usr/bin/phpdoc"
+        register: symlink_phpdoc
+        tags:
+              - symlink_phpdoc
+              - phptool_setup
+
+########################################################################################################################
+# CODEBASE SETUP
+# setup symlinks and directory structure
+#
+########################################################################################################################
+
+      - name: copy_codebasetool
+        copy: "src=config/codebasetool.sh dest=/tmp/codebasetool.sh owner=jenkins group=workplacesystem mode=0755"
+        register: copy_codebasetool
+        tags:
+               - copy_codebasetool
+               - codebase_setup
+
+      - name: run_codebasetool
+        when: copy_codebasetool|success
+        shell: "bash /tmp/codebasetool.sh -i >> /tmp/codebastool.log"
+        register: run_codebasetool
+        tags:
+               - run_codebasetool
+               - codebase_setup

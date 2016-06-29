@@ -1,0 +1,193 @@
+---
+- name: "Utility create, copy and fetch yaml for Jenkins servers"
+  hosts: "{{ hosts }}"
+  remote_user: "{{ user }}"
+
+  vars:
+      owner:        "{{ owner }}"
+      group:        "{{ group }}"
+      permissions:  "{{ permissions }}"
+      localfile:    "{{ localfile }}"  # Full path to file/dir on ansible master
+      remotefile:   "{{ remotefile }}" # Full path to file/dir on ansible slaves
+      user:         "{{ user }}"
+      destfilepath: "{{ destfilepath }}"
+      destdir:      "{{ destdir }}"
+      packagename:  "{{ packagename }}"
+
+  tasks:
+     #################################################################################
+     # CREATE FOLDER ON REMOTE NODE(S)
+     # USAGE:
+     # ansible-playbook jenkins_utils.yml --tags=create_folder --extra-vars
+     # "hosts=<HOSTNAMES> user=<USER> remotefile=<FILEPATH> permissions=<PERMISSIONS>"
+     #################################################################################
+     - name: create_folder
+       file: 
+             path="{{ remotefile }}"
+             state=directory 
+             mode="{{ permissions }}"
+       tags:
+           - create_folder
+
+     #################################################################################
+     # COPY FILES FROM LOCAL SERVER (ANSIBLE MASTER) TO REMOTE NODE(S)
+     # USAGE:
+     # ansible-playbook jenkins_utils.yml --tags=remote_copy_files --extra-vars
+     # "hosts=<HOSTNAMES> user=<USER> localfile=<FILEPATH> remotefile=<REMOTEFILEPATH>
+     # owner=<OWNER> group=<GROUP> permissions=<PERMISSIONS> "
+     #################################################################################
+     - name: remote_copy_files
+       copy: 
+             remote_src="{{ localfile }}"
+             dest="{{ remotefile }}"
+             owner="{{ owner }}"
+             group="{{ group }}"
+             mode="{{ permissions }}"
+             backup=yes
+       tags:
+           - remote_copy_files
+
+     #################################################################################
+     # COPY FILES ON REMOTE NODE(S) TO DIFFERENT LOCATION ON SAME NODE(S)
+     # USAGE:
+     # ansible-playbook jenkins_utils.yml --tags=local_copy_files --extra-vars
+     # "hosts=<HOSTNAMES> user=<USER> remotefile=<REMOTEFILE> filepath=<DEST_FILEPATH>
+     # owner=<OWNER> group=<GROUP> permissions=<PERMISSIONS> "
+     #################################################################################
+     - name: local_copy_files
+       copy:
+             src="{{ remotefile }}"
+             dest="{{ destfilepath }}"
+             owner="{{ owner }}"
+             group="{{ group }}"
+             mode="{{ permissions }}"
+             backup=yes
+       tags:
+            - local_copy_files
+
+     #################################################################################
+     # FETCH FILES FROM REMOTE NODE(S) TO LOCAL SERVER
+     # USAGE:
+     # ansible-playbook jenkins_utils.yml --tags=remote_fetch_files --extra-vars
+     # "hosts=<HOSTNAMES> user=<USER> localfile=<LOCALFILE> remotefile=<REMOTEFILE>"
+     #################################################################################
+     - name: remote_fetch_files
+       fetch: 
+             src="{{ remotefile }}"
+             dest="{{ localfile }}"
+             flat=yes
+       tags:
+            - remote_fetch_files
+
+     #################################################################################
+     # CREATE UNIX USER ON REMOTE NODE(S)
+     # USAGE:
+     # ansible-playbook jenkins_utils.yml --tags=create_user --extra-vars
+     # "hosts=<HOSTNAMES> user=<USER> owner=<NEW_USER> group=<GROUP>"
+     #################################################################################
+     - name: create_user
+       user: 
+             name="{{ owner }}"
+             shell=/bin/bash 
+             groups="{{ group }}"
+             append=yes
+       tags:
+            - create_user
+
+     #################################################################################
+     # DELETE UNIX USER ON REMOTE NODE(S)
+     # USAGE:
+     # ansible-playbook jenkins_utils.yml --tags=delete_user --extra-vars
+     # "hosts=<HOSTNAMES> user=<USER> owner=<USER_TO_DELETE>"
+     #################################################################################
+     - name: delete_user
+       user:
+             name="{{ owner }}"
+             state=absent 
+             remove=yes
+       tags:
+            - delete_user
+
+     #################################################################################
+     # CREATE UNIX GROUP ON REMOTE NODE(S)
+     # USAGE:
+     # ansible-playbook jenkins_utils.yml --tags=create_group --extra-vars
+     # "hosts=<HOSTNAMES> user=<USER> group=<GROUP>"
+     #################################################################################
+     - name: create_group
+       group: 
+             name="{{ group }}"
+             state=present
+       tags:
+            - create_group
+
+     #################################################################################
+     # DELETE UNIX GROUP ON REMOTE NODE(S)
+     # USAGE:
+     # ansible-playbook jenkins_utils.yml --tags=delete_group --extra-vars
+     # "hosts=<HOSTNAMES> user=<USER> group=<GROUP>"
+     #################################################################################
+     - name: delete_group
+       group:
+             name="{{ group }}"
+             state=absent
+       tags:
+            - delete_group
+
+     #################################################################################
+     # COPY AND UNPACK ARCHIVE FILE FROM LOCAL SERVER TO REMOTE NODE(S)
+     # USAGE:
+     # ansible-playbook jenkins_utils.yml --tags=install_tar --extra-vars
+     # "hosts=<HOSTNAMES> user=<USER> localfile=<PATH TO ARCHIVE> destdir=<ARCHIVE_DESTDIR>"
+     #################################################################################
+     - name: install_tar
+       unarchive: 
+             src="{{ localfile }}"
+             dest="{{ destdir }}"
+             copy=yes
+       tags:
+            - install_tar
+     ######################################################################################
+     # INSTALL SYSTEM PACKAGE USING APT
+     # USAGE:
+     # ansible-playbook jenkins_utols.yml --tags=install_package --extra-vars
+     # "hosts=<HOSTNAMES> user=<USER> packagename=<PACKAGENAME>"
+     ######################################################################################
+     - name: install_packages
+       apt:
+              name: "{{ packagename }}"
+              update_cache: yes
+       tags:
+                 - install_package
+     #######################################################################################
+     # SYNC NTP SERVER TIME
+     # USAGE:
+     # ansible-playbook jenkins_utils.yml --tags=sync_ntp_time --extra-vars
+     # "hosts=<HOSTNAMES> user=<USER>"
+     # should run as root user
+     #
+     # ansible-playbook jenkins_utils.yml --tags=sync_ntp_time --extra-vars
+     # "hosts=jenkins_slaves user=root" -vvvv
+     ########################################################################################
+     - name: stop_ntp_server
+       command: "/etc/init.d/ntp stop"
+       register: stop_ntp_server
+       tags:
+              - stop_ntp_server
+              - sync_ntp_time
+
+     - name: run_ntpdate
+       when: stop_ntp_server|success
+       command: "ntpdate 212.159.8.120"
+       register: run_ntpdate
+       tags:
+              - run_ntpdate
+              - sync_ntp_time
+
+     - name: start_ntp_server
+       when: run_ntpdate|success
+       command: "/etc/init.d/ntp start"
+       register: start_ntp_server
+       tags:
+              - start_ntp_server
+              - sync_ntp_time

@@ -1,0 +1,424 @@
+---
+- name: "Jenkins master server build"
+  hosts: "{{ hosts }}"
+  remote_user: "{{ user }}"  # should be root or ID with superuser privileges to install packages
+
+########################################################################################################################
+# USAGE:
+#       ansible-playbook setup.yml --extra-vars "hosts=<HOSTNAME> user=<USER>
+# RUN SPECIFC TASK(S):
+#       ansible-playbook setup.yml --tags=<SPECIFC TAGS FOR TASKS> --extra-vars "hosts=<HOSTNAME> user=<USER>
+# RUN ALL EXCEPT SPECIFIC TASK(S):
+#       ansible-playbook setup.yml --skip-tags=<SPECIFC_TAGS_TO_SKIP> --extra-vars "hosts=<HOSTNAME> user=<USER>
+#
+# NB: Any variable (vars) below can be overridden on the command line as an extra-vars argument
+# Assumed base build is Debian 6 Cloudplatform template
+########################################################################################################################
+  vars:
+     composer_folder: "/local/apps/shared/composer"
+     localbin_composer_folder: "/usr/local/bin"
+     codebase_modules: "/local/codebase2005/modules/"
+     download_folder: "/usr/local"
+     jenkins_server_home: "/var/lib/jenkins"
+     mysql_55_deb: "mysql-5.5.47-debian6.0-x86_64.deb"
+     maven_version: "apache-maven-3.0.5"
+     maven_install_dir: "/usr/local/apache-maven"
+     maven_url: "http://apache.proserve.nl/maven/maven-3/3.0.5/binaries/apache-maven-3.0.5-bin.tar.gz"
+     java7_name: "jdk1.7.0_21"
+     java_name: "jdk1.6.0_45"
+     java_folder: "/usr/lib/jvm/"
+     java_alias: "default-java"
+     java_archive: "{{ download_folder }}/{{ java_name }}.tar.gz"
+     java7_archive: "{{ download_folder }}/{{java7_name }}.tar.gz"
+     jenkins_1509_deb: "jenkins_1.509.4.1_all.deb"
+     jenkins_1609_deb: "jenkins_1.609.3_all.deb"
+     jobs_folder: "/local/services/hudson/jobs"
+     plugins_zip: "jenkins_1509_plugins.tar.gz"
+     jenkins_plugins_home: "{{ jenkins_server_home }}/plugins"
+     phpcb_install_path: "/usr/bin/phpcb"
+     phpcb_install_dir: "/usr/bin/phpcb/phpcb-1.1.1.phar"
+     phpcb_url: "https://github.com/mayflower/PHP_CodeBrowser/releases/download/1.1.1/phpcb-1.1.1.phar"
+
+
+  tasks:
+########################################################################################################################
+# GENERAL SETUP TASKS:
+#
+#
+########################################################################################################################
+
+     - name: update_repos
+       copy:
+             src="config/sources.list"
+             dest="/etc/apt/sources.list"
+       register: update_repos
+       tags:
+             - update_repos
+
+     - name: install_packages
+       #when: update_repos|success
+       apt:
+         name: "{{ item }}"
+         update_cache: yes
+       with_items:
+                - "ntp"
+                - "ntpdate"
+                - "curl"
+                - "wget"
+                - "tar"
+                - "git"
+                - "tree"
+                - "htop"
+                - "default-jdk"
+                - "ruby"
+                - "gdebi-core"
+                - "zip"
+                - "unzip"
+                - "mysql-server-5.5"
+                - "mysql-client-5.5"
+                - "node"
+                - "ruby-full"
+                - "bash-completion"
+                - "apt-transport-https"
+                - "ca-certificates"
+       register: install_packages
+       tags:
+            - install_packages
+            - packages
+     
+     - name: ntp_set_timezone
+       when: install_packages|success
+       copy:
+         content: "Europe/London\n"
+         dest:    "/etc/timezone"
+         owner:   "root"
+         group:   "root"
+         mode:    "u=rw,g=r,o=r"
+       register: ntp_set_timezone
+       tags:
+              - ntp_set_timezone
+              - packages
+
+     - name: create_system_folders
+       when: install_packages|success
+       file:
+            path:  "{{ item }}"
+            state: directory
+            owner:    "root"
+            group:    "root"
+            mode:     "0755"
+       with_items:
+            - "{{ java_folder }}"
+            - "{{ java_folder }}/{{ java_name }}"
+            - "{{ maven_install_dir }}"
+            - "{{ composer_folder }}"
+            - "{{ codebase_modules }}"
+            - "{{ jobs_folder }}"
+       register: create_system_folders
+       tags:
+            - create_system_folders
+            - packages
+
+     - name: update_git
+       when: install_packages|success
+       command: "apt-get -t squeeze-backports install -y -qq git"
+       register: update_git
+       tags:
+          - update_git
+          - packages
+
+########################################################################################################################
+# JAVA TASKS:
+#
+#
+########################################################################################################################
+     - name: download_jdk
+       when:
+        - install_packages|success
+        - create_system_folders|success
+       copy: "src=config/{{ item }}.tar.gz dest={{ download_folder }}/{{ item }}.tar.gz"
+       with_items:
+            - "{{ java_name }}"
+            - "{{ java7_name }}"
+       register: download_jdk
+       tags:
+             - install_java
+             - packages
+
+     - name: unpack_jdk
+       when: download_jdk|success
+       unarchive:
+             src="{{ download_folder }}/{{ item }}.tar.gz"
+             dest={{ java_folder }}
+             copy=no
+       with_items:
+             - "{{ java_name }}"
+             - "{{ java7_name }}"
+       register: unpack_jdk
+       tags:
+             - install_java
+             - packages
+
+     - name: symlink_jdk1
+       when: unpack_jdk|success
+       file:
+             state=link
+             src={{ java_folder }}/{{ java_name }}
+             dest={{ java_folder }}/{{ java_alias }}
+       register: symlink_jdk1
+       tags:
+             - install_java
+             - packages
+
+     - name: symlink_jdk2
+       when: symlink_jdk1|success
+       command: "update-alternatives --install /usr/bin/java java {{java_folder}}/{{java_alias}}/bin/java 1"
+       register: symlink_jdk2
+       tags:
+             - install_java
+             - packages
+
+
+########################################################################################################################
+# MAVEN TASKS:
+#
+#
+########################################################################################################################
+     - name: download_maven3
+       when:
+             - install_packages|success
+             - create_system_folders|success
+       get_url:
+             dest="{{ maven_install_dir }}/{{ maven_version }}.tar.gz"
+             url="{{ maven_url }}"
+       register: download_maven3
+       tags:
+             - install_maven
+             - packages
+
+     - name: unpack_maven3
+       when: download_maven3|success
+       unarchive:
+             src="{{ maven_install_dir }}/{{ maven_version }}.tar.gz"
+             dest="{{ maven_install_dir }}"
+             copy=no
+       register: unpack_maven3
+       tags:
+              - install_maven
+              - packages
+
+     - name: symlink_maven3
+       when: unpack_maven3|success
+       command: "update-alternatives --install /usr/bin/mvn mvn {{maven_install_dir}}/{{maven_version}}/bin/mvn 1"
+       register: symlink_maven3
+       tags:
+             - install_maven
+             - packages
+
+
+########################################################################################################################
+# USER CREATION AND PERMISSIONS
+#
+#
+########################################################################################################################
+     - name: copy_etcprofile
+       when: create_system_folders|success
+       copy: "src=config/etc_profile dest=/etc/profile"
+       register: copy_etcprofile
+       tags:
+             - copy_etcprofile
+             - user_perms
+
+     - name: create_workplacesystem
+       when: install_packages|success
+       group:
+             name="workplacesystem"
+             state=present
+       register: create_workplacesystem
+       tags:
+             - create_workplacesystem
+             - user_perms
+
+     - name: create_jenkins_user
+       when: create_workplacesystem|success
+       user:
+             name=jenkins
+             group=workplacesystem
+             shell=/bin/bash
+             home={{ jenkins_server_home }}
+       register: create_jenkins_user
+       tags:
+             - create_jenkins_user
+             - user_perms
+
+     - name: setup_jenkins_folders
+       when: create_jenkins_user|success
+       file:
+             path="{{jenkins_server_home}}/{{ item }}"
+             state=directory
+             mode=0700
+             owner="jenkins"
+             group="workplacesystem"
+       with_items:
+             - ".ssh"
+             - ".m2"
+       register: setup_jenkins_folders
+       tags:
+            - setup_jenkins_folders
+            - user_perms
+
+     - name: jenkins_sudo
+       when: create_jenkins_user|success
+       lineinfile: "line='jenkins ALL=NOPASSWD: ALL' dest=/etc/sudoers regexp='^jenkins'"
+       register: jenkins_sudo
+       tags:
+             - jenkins_sudo
+             - user_perms
+
+     - name: set_directory_perms
+       when:
+             - install_packages|success
+             - create_system_folders|success
+             - create_jenkins_user|success
+       command: "chown -R jenkins:workplacesystem {{ item }}"
+       with_items:
+               - /local
+       register: set_directory_perms
+       tags:
+             - set_dir_perms
+             - user_perms
+  ######################################################################################################################
+  # JENKINS USER CONFIG TASKS
+  #
+  #
+  ######################################################################################################################
+     - name: add_ssh_config
+       when: set_dir_perms|success
+       copy: "src=config/{{ item }} dest={{jenkins_server_home}}/.ssh/{{ item }} owner=jenkins group=workplacesystem mode=0644"
+       with_items:
+             - "id_rsa.pub"
+             - "authorized_keys"
+             - "known_hosts"
+       register: add_ssh_config
+       tags:
+            - add_ssh_config
+            - jenkins_user
+
+     - name: add_rsa_file
+       when: add_ssh_config|success
+       copy: "src=config/id_rsa dest={{ jenkins_server_home }}/.ssh/id_rsa owner=jenkins group=workplacesystem mode=0600"
+       register: add_rsa_file
+       tags:
+            - add_private_key
+            - jenkins_user
+
+     - name: add_profiles
+       when: set_dir_perms|success
+       copy: "src=config/{{ item }} dest={{ jenkins_server_home }}/{{ item }} owner=jenkins group=workplacesystem mode=0644"
+       with_items:
+            - ".bashrc"
+            - ".bash_profile"
+       register: add_profiles
+       tags:
+            - add_profiles
+            - jenkins_user
+
+     - name: copy_maven_config
+       when: set_dir_perms|success
+       copy: "src=config/settings.xml dest={{jenkins_server_home}}/.m2/settings.xml owner=jenkins group=workplacesystem mode=0644"
+       register: copy_maven_config
+       tags:
+            - add_settings_xml
+            - jenkins_user
+
+########################################################################################################################
+# JENKINS MASTER INSTALL
+#
+#
+########################################################################################################################
+     - name: get_jenkins
+       when: setup_jenkins_ssh|success
+       copy: "src=config/{{ jenkins_1509_deb }} dest={{ download_folder }}/{{ jenkins_1509_deb }}"
+       register: get_jenkins
+       tags:
+             - jenkins_install
+
+     - name: install_jenkins
+       when: get_jenkins|success
+       apt:
+              deb="{{ download_folder }}/{{ jenkins_1509_deb }}"
+              update_cache=yes
+       register: install_jenkins
+       tags:
+            - jenkins_install
+
+########################################################################################################################
+# SLAVE SETUP - PHP PACKAGES
+#
+#
+########################################################################################################################
+     - name: install_php_modules
+       #when: install_packages|success
+       apt:
+            name:  "{{ item }}"
+            update_cache: yes
+       with_items:
+             - "php5-xsl"
+             - "php5"
+             - "php5-dev"
+             - "php5-curl"
+             - "graphviz"
+             - "php5-mcrypt"
+             - "php5-mysql"
+             - "php-pear"
+             - "php5-cli"
+             - "php5-common"
+             - "php5-ldap"
+             - "php5-mhash"
+             - "php5-sqlite"
+             - "php5-xdebug"
+             - "mcrypt"
+             - "python-software-properties"
+       register: install_php_modules
+       tags:
+            - php_modules
+            - php_build
+
+     - name: php_ini_conf
+       when: install_php_modules|success
+       lineinfile: "line='suhosin.executor.include.whitelist = phar' dest=/etc/php5/cli/php.ini"
+       register: php_ini_conf
+       tags:
+             - php_ini_conf
+             - php_build
+
+     - name: php_ini_conf2
+       when: php_ini_conf|success
+       lineinfile: "line='date.timezone = Europe/London/' dest=/etc/php5/cli/php.ini"
+       register: php_ini_conf2
+       tags:
+             - php_ini_conf2
+             - php_build
+
+     - name: get_codebrowser
+       when: install_packages|success
+       get_url:
+            dest="/usr/bin"
+            url="{{ phpcb_url }}"
+            mode=0755
+       register: get_codebrowser
+       tags:
+             - get_codebrowser
+             - php_build
+
+     - name: link_codebrowser
+       when: get_codebrowser|success
+       file:
+           state=link
+           src="/usr/bin/phpcb-1.1.1.phar"
+           dest="/usr/bin/phpcb"
+       register: link_codebrowser
+       tags:
+             - link_codebrowser
+             - php_modules
+             - php_build
