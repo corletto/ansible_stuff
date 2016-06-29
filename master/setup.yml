@@ -12,12 +12,11 @@
 #       ansible-playbook setup.yml --skip-tags=<SPECIFC_TAGS_TO_SKIP> --extra-vars "hosts=<HOSTNAME> user=<USER>
 #
 # NB: Any variable (vars) below can be overridden on the command line as an extra-vars argument
-# Assumed base build is Debian 6 Cloudplatform template
+# Assumed base build is Debian 6 Squeeze
 ########################################################################################################################
   vars:
      composer_folder: "/local/apps/shared/composer"
      localbin_composer_folder: "/usr/local/bin"
-     codebase_modules: "/local/codebase2005/modules/"
      download_folder: "/usr/local"
      jenkins_server_home: "/var/lib/jenkins"
      mysql_55_deb: "mysql-5.5.47-debian6.0-x86_64.deb"
@@ -32,7 +31,6 @@
      java7_archive: "{{ download_folder }}/{{java7_name }}.tar.gz"
      jenkins_1509_deb: "jenkins_1.509.4.1_all.deb"
      jenkins_1609_deb: "jenkins_1.609.3_all.deb"
-     jobs_folder: "/local/services/hudson/jobs"
      plugins_zip: "jenkins_1509_plugins.tar.gz"
      jenkins_plugins_home: "{{ jenkins_server_home }}/plugins"
      phpcb_install_path: "/usr/bin/phpcb"
